@@ -11,10 +11,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Carga de los paquetes
 ```{r carga-paquetes,message=FALSE,warning=FALSE}
 library(sf)
-library(raster)
 library(leaflet)
 library(leaflet.extras)
 library(dplyr)
+library(leafem)
 ```
 
 ## Carga de los datos
@@ -159,7 +159,7 @@ leaflet() %>%
 
 
 # Mapa de cantidad de especies por provincias.
-```{r}
+```{r calculo-provincias-especies, message=FALSE, warning=FALSE}
 # Creación de conjunto de datos con la cantidad de especies por provincia
 provincias_especies <-
   provincias %>%
@@ -169,12 +169,12 @@ provincias_especies <-
   rename(provincia = provincia.x)
 ```
 
-```{r}
+```{r mapa-provincias-especies, message=FALSE, warning=FALSE}
 # Mapa
 
 # Paleta de colores
 colores_especies <-
-  colorNumeric(palette = "YlOrRd",
+  colorNumeric(palette = "Purples",
                domain = provincias_especies$especies,
                na.color = "transparent")
 
