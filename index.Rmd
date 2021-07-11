@@ -1,0 +1,246 @@
+---
+title: "Ejercicio de Análisis y Visualización de Datos de Primates de Costa Rica"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preparativos
+## Carga de los paquetes
+```{r carga-paquetes,message=FALSE,warning=FALSE}
+library(sf)
+library(raster)
+library(leaflet)
+library(leaflet.extras)
+library(dplyr)
+```
+
+## Carga de los datos
+```{r cagar-datos}
+# Carga de la capa de cantones
+cantones <-
+  st_read(
+    "https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/ign/delimitacion-territorial-administrativa/cr_cantones_simp_wgs84.geojson",
+    quiet = TRUE
+  )
+
+# Carga de la capa de provincias
+provincias <-
+  st_read(
+    "https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/ign/delimitacion-territorial-administrativa/cr_provincias_simp_wgs84.geojson",
+    quiet = TRUE
+  )
+# Carga de los datos de primates
+primates <-
+  st_read(
+    "https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/gbif/primates-cr-registros.csv",
+    options = c(
+      "X_POSSIBLE_NAMES=decimalLongitude",
+      "Y_POSSIBLE_NAMES=decimalLatitude"
+    ),
+    quiet = TRUE
+  )
+
+# Asignación del sistema de coordenadas
+st_crs(primates) = 4326
+```
+
+
+## Limpieza
+### Eliminar datos que nos pueden generar ruido en los análisis.
+```{r cambio-tipo-datos}
+primates <-
+  primates %>%
+  mutate(coordinateUncertaintyInMeters = as.numeric(coordinateUncertaintyInMeters)) %>%
+  mutate(eventDate = as.Date(eventDate, "%Y-%m-%d"))
+```
+
+```{r descartando-registros-incetidumbre-alta,message=FALSE,warning=FALSE}
+cat("Cantidad original de registros: ", nrow(primates))
+
+# Descartar registros con alta incertidumbre en la ubicación
+primates <-
+  primates %>%
+  filter(!is.na(coordinateUncertaintyInMeters) & coordinateUncertaintyInMeters <= 1000)
+
+cat("Cantidad de registros después de descartar los de alta incertidumbre en la ubicación: ", nrow(primates))
+
+# Agregar columnas de provincia y de cantón
+primates <-
+  primates %>%
+  st_join(cantones["provincia"]) %>%
+  st_join(cantones["canton"])
+
+# Descartar registros con provincia = NA
+primates <-
+  primates %>%
+  filter(!is.na(provincia))
+
+cat("Cantidad de registros después de descartar los que no tienen provincia: ", nrow(primates))
+```
+
+# Procesamiento y visualización
+
+# Mapa de Cantidad de Registros por provincia
+## Lo que se va a realizar es una operación espacial para contar cuantos registros caen dentro de cada provincia, canton, entre otros.
+```{r calculo-provincias-registros, message=FALSE, warning=FALSE}
+# Creación de conjunto de datos con la cantidad de registros por provincia
+provincias_registros <-
+  provincias %>%
+  st_join(primates) %>%
+  group_by(provincia.x) %>%
+  summarize(registros = n_distinct(gbifID, na.rm = TRUE)) %>%
+  rename(provincia = provincia.x)
+```
+
+```{r segmento-para-el-mapa}
+
+# Mapa registros por provincia
+
+# Paleta de colores
+colores_registros <-
+  colorNumeric(palette = "YlGnBu",
+               domain = provincias_registros$registros,
+               na.color = "transparent")
+
+# Mapa Leaflet
+leaflet() %>%
+  addTiles(group = "OSM") %>%
+  addPolygons(
+    data = provincias_registros,
+    fillColor = ~ colores_registros(provincias_registros$registros),
+    fillOpacity = 0.7,
+    stroke = TRUE,
+    color = "black",
+    weight = 1,
+    popup = paste(
+      paste(
+        "<strong>Provincia:</strong>",
+        provincias_registros$provincia
+      ),
+      paste(
+        "<strong>Cantidad de registros:</strong>",
+        provincias_registros$registros
+        
+      ),
+      sep = '<br/>'
+    ),
+    group = "Provincias - registros"
+  ) %>%
+  addCircleMarkers(
+    data = primates,
+    stroke = F,
+    radius = 2,
+    fillColor = 'black',
+    fillOpacity = 1,
+    popup = paste(
+      primates$species,
+      primates$provincia,
+      primates$canton,
+      primates$eventDate,
+      paste0("<a href='", primates$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),
+    clusterOptions = markerClusterOptions(),
+    group = "Registros de primates"
+  ) %>%  
+  addLayersControl(baseGroups = c("OSM"),
+                   overlayGroups = c("Provincias - registros", "Registros de primates")) %>%
+  addLegend(
+    position = "bottomleft",
+    pal = colores_registros,
+    values = provincias_registros$registros,
+    group = "Provincias - registros",
+    title = "Cantidad de registros"
+  )
+```
+
+
+# Mapa de cantidad de especies por provincias.
+```{r}
+# Creación de conjunto de datos con la cantidad de especies por provincia
+provincias_especies <-
+  provincias %>%
+  st_join(primates) %>%
+  group_by(provincia.x) %>%
+  summarize(especies = n_distinct(species, na.rm = TRUE)) %>%
+  rename(provincia = provincia.x)
+```
+
+```{r}
+# Mapa
+
+# Paleta de colores
+colores_especies <-
+  colorNumeric(palette = "YlOrRd",
+               domain = provincias_especies$especies,
+               na.color = "transparent")
+
+# Mapa Leaflet
+leaflet() %>%
+  addTiles(group = "OSM") %>%
+  addPolygons(
+    data = provincias_especies,
+    fillColor = ~ colores_especies(provincias_especies$especies),
+    fillOpacity = 0.7,
+    stroke = TRUE,
+    color = "black",
+    weight = 1,
+    popup = paste(
+      paste(
+        "<strong>Provincia:</strong>",
+        provincias_especies$provincia
+      ),
+      paste(
+        "<strong>Cantidad de especies:</strong>",
+        provincias_especies$especies
+        
+      ),
+      sep = '<br/>'
+    ),
+    group = "Provincias - especies"
+  ) %>%
+  addCircleMarkers(
+    data = primates,
+    stroke = F,
+    radius = 2,
+    fillColor = 'black',
+    fillOpacity = 1,
+    popup = paste(
+      primates$species,
+      primates$provincia,
+      primates$canton,
+      primates$eventDate,
+      paste0("<a href='", primates$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),
+    clusterOptions = markerClusterOptions(),
+    group = "Registros de primates"
+  ) %>%  
+  addLayersControl(baseGroups = c("OSM"),
+                   overlayGroups = c("Provincias - especies", "Registros de primates")) %>%
+  addLegend(
+    position = "bottomleft",
+    pal = colores_especies,
+    values = provincias_especies$especies,
+    group = "Provincias - especies",
+    title = "Cantidad de especies"
+  )
+```
+
+
+# Mapa Agrupamiento(Clustered)
+
+# Mapa de Calor
+
+
+
+
+
+
+
+
+
+
